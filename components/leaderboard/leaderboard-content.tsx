@@ -82,6 +82,21 @@ export function LeaderboardContent() {
 
   return (
     <div className="space-y-6">
+      {/* Coming Soon Message */}
+      <Card className="border-2 shadow-[4px_4px_0px_0px_#1A1A1A]">
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 flex h-20 w-20 items-center justify-center border-2 border-border bg-[#AEC6FF]">
+            <Trophy className="h-10 w-10 text-[#3A5FCD]" />
+          </div>
+          <h2 className="font-mono text-2xl font-bold sm:text-3xl">Coming Soon</h2>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+            The Leaderboard is under development. Check back soon!
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Original Code - Hidden but kept for future use */}
+      <div className="hidden">
       {/* Header */}
       <div>
         <h1 className="font-mono text-3xl font-bold tracking-tight sm:text-3xl">Leaderboard</h1>
@@ -273,6 +288,7 @@ export function LeaderboardContent() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }
