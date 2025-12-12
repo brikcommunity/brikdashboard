@@ -40,10 +40,37 @@ export function CalendarContent() {
 
   const getEventsForDay = (day: number) => {
     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+    const currentDate = new Date(year, month, day)
+    
     return events.filter((e) => {
       // Handle both date strings and full ISO datetime strings
       const eventDate = e.date ? new Date(e.date).toISOString().split('T')[0] : null
-      return eventDate === dateStr
+      
+      // Check if event is on this exact date
+      if (eventDate === dateStr) {
+        return true
+      }
+      
+      // Check if this is a multi-day event and current day is within the range
+      if (e.description) {
+        // Parse date range from description: "Event runs from [date] to [date]"
+        const dateRangeMatch = e.description.match(/Event runs from (.+?) to (.+?)(\n|$)/i)
+        if (dateRangeMatch) {
+          try {
+            const fromDate = new Date(dateRangeMatch[1].trim())
+            const toDate = new Date(dateRangeMatch[2].trim())
+            
+            // Check if current date is within the range (inclusive)
+            if (currentDate >= fromDate && currentDate <= toDate) {
+              return true
+            }
+          } catch {
+            // If date parsing fails, fall back to single date check
+          }
+        }
+      }
+      
+      return false
     })
   }
 
@@ -96,58 +123,6 @@ export function CalendarContent() {
               Week
             </Button>
           </div>
-          {isAdmin && (
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button className="border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-[#5C7AEA] hover:shadow-[6px_6px_0px_0px_#1A1A1A]">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Event
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle className="font-mono">Add New Event</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="event-title">Event Title</Label>
-                  <Input id="event-title" placeholder="Enter event title" className="border-2" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="event-date">Date</Label>
-                    <Input id="event-date" type="date" className="border-2" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="event-time">Time</Label>
-                    <Input id="event-time" type="time" className="border-2" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="event-type">Type</Label>
-                  <select id="event-type" className="w-full border-2 border-border bg-white p-2">
-                    <option value="event">Event</option>
-                    <option value="deadline">Deadline</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="event-description">Description</Label>
-                  <Textarea id="event-description" placeholder="Add event details..." className="min-h-24 border-2" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="event-image">Cover Image</Label>
-                  <div className="flex items-center gap-2">
-                    <Input id="event-image" type="file" accept="image/*" className="border-2" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Optional: Add a cover image for your event</p>
-                </div>
-                <Button className="w-full border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A]">
-                  Create Event
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-          )}
         </div>
       </div>
 
@@ -261,21 +236,59 @@ export function CalendarContent() {
                                 </div>
                                 <p className="text-sm">
                                   <span className="font-medium">Date:</span>{" "}
-                                  {new Date(event.date).toLocaleDateString("en-US", {
-                                    weekday: "long",
-                                    year: "numeric",
-                                    month: "long",
-                                    day: "numeric",
-                                  })}
+                                  {(() => {
+                                    // Check if description contains date range
+                                    const dateRangeMatch = event.description?.match(/Event runs from (.+?) to (.+?)(\n|$)/i)
+                                    if (dateRangeMatch) {
+                                      try {
+                                        const fromDate = new Date(dateRangeMatch[1].trim())
+                                        const toDate = new Date(dateRangeMatch[2].trim())
+                                        const fromStr = fromDate.toLocaleDateString("en-US", {
+                                          weekday: "long",
+                                          year: "numeric",
+                                          month: "long",
+                                          day: "numeric",
+                                        })
+                                        const toStr = toDate.toLocaleDateString("en-US", {
+                                          weekday: "long",
+                                          year: "numeric",
+                                          month: "long",
+                                          day: "numeric",
+                                        })
+                                        return `${fromStr} - ${toStr}`
+                                      } catch {
+                                        // Fall back to single date
+                                      }
+                                    }
+                                    return new Date(event.date).toLocaleDateString("en-US", {
+                                      weekday: "long",
+                                      year: "numeric",
+                                      month: "long",
+                                      day: "numeric",
+                                    })
+                                  })()}
                                 </p>
-                                {event.time && (
-                                  <p className="text-sm">
-                                    <span className="font-medium">Time:</span> {event.time}
-                                  </p>
-                                )}
+                                {(() => {
+                                  // Extract time from description if it exists
+                                  const timeMatch = event.description?.match(/Time: (.+?)(\n|$)/i)
+                                  const timeStr = timeMatch ? timeMatch[1].trim() : event.time
+                                  return timeStr ? (
+                                    <p className="text-sm">
+                                      <span className="font-medium">Time:</span> {timeStr}
+                                    </p>
+                                  ) : null
+                                })()}
                                 {event.description && (
                                   <div className="border-t-2 border-border pt-3">
-                                    <p className="text-sm leading-relaxed text-muted-foreground">{event.description}</p>
+                                    <p className="text-sm leading-relaxed text-muted-foreground">
+                                      {(() => {
+                                        // Remove date/time range info from description for display
+                                        let desc = event.description
+                                        desc = desc.replace(/Event runs from .+? to .+?(\n|$)/i, '').trim()
+                                        desc = desc.replace(/Time: .+?(\n|$)/i, '').trim()
+                                        return desc || 'No additional details'
+                                      })()}
+                                    </p>
                                   </div>
                                 )}
                               </div>

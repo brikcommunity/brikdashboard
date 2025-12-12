@@ -33,9 +33,6 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   getProjects,
-  createProject,
-  updateProject,
-  deleteProject,
   getProjectMembers,
   addProjectMember,
   removeProjectMember,
@@ -43,14 +40,13 @@ import {
   type Project,
   type Profile,
 } from "@/lib/database"
-import { useAuth } from "@/contexts/auth-context"
+import { createProjectByAdmin, updateProjectByAdmin, deleteProjectByAdmin } from "@/lib/admin"
 import { formatDistanceToNow } from "date-fns"
 
 const tracks = ["Engineering", "Design", "Product", "Climate", "Health"]
 const stages = ["Idea", "Prototype", "MVP", "Beta", "Launched"]
 
 export function AdminProjectsContent() {
-  const { profile } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [allMembers, setAllMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
@@ -113,24 +109,25 @@ export function AdminProjectsContent() {
 
   const handleCreate = async () => {
     if (!formData.name.trim()) {
-      alert("Project name is required")
       return
     }
 
     setIsSubmitting(true)
     try {
-      const { data: project, error } = await createProject({
-        name: formData.name,
-        team_name: formData.team_name || null,
-        track: formData.track || null,
-        stage: formData.stage || null,
-        description: formData.description || null,
-        progress: formData.progress,
-        featured: formData.featured,
-        created_by: profile?.id || null,
-      })
+      const { data: project, error } = await createProjectByAdmin(
+        formData.name,
+        formData.description || undefined,
+        formData.team_name || undefined,
+        formData.track || undefined,
+        formData.stage || undefined,
+        formData.progress,
+        formData.featured
+      )
 
-      if (error) throw error
+      if (error) {
+        setIsSubmitting(false)
+        return
+      }
 
       // Add members to the project
       if (project && formData.members.length > 0) {
@@ -139,8 +136,7 @@ export function AdminProjectsContent() {
         }
       }
 
-      await fetchProjects()
-      setIsCreateOpen(false)
+      // Reset form and close dialog immediately
       setFormData({
         name: "",
         team_name: "",
@@ -151,32 +147,40 @@ export function AdminProjectsContent() {
         featured: false,
         members: [],
       })
-    } catch (error: any) {
-      alert(error.message || "Failed to create project")
-    } finally {
+      setIsCreateOpen(false)
       setIsSubmitting(false)
+      
+      // Refresh projects list (non-blocking)
+      fetchProjects().catch(() => {
+        // Error refreshing projects
+      })
+    } catch (error: any) {
+      setIsSubmitting(false)
+      // Don't close dialog on error so user can fix and retry
     }
   }
 
   const handleEdit = async () => {
     if (!editingProject || !formData.name.trim()) {
-      alert("Project name is required")
       return
     }
 
     setIsSubmitting(true)
     try {
-      const { error } = await updateProject(editingProject.id, {
+      const { data, error } = await updateProjectByAdmin(editingProject.id, {
         name: formData.name,
-        team_name: formData.team_name || null,
-        track: formData.track || null,
-        stage: formData.stage || null,
-        description: formData.description || null,
+        team_name: formData.team_name || undefined,
+        track: formData.track || undefined,
+        stage: formData.stage || undefined,
+        description: formData.description || undefined,
         progress: formData.progress,
         featured: formData.featured,
       })
 
-      if (error) throw error
+      if (error) {
+        setIsSubmitting(false)
+        return
+      }
 
       // Update members
       const currentMembers = (await getProjectMembers(editingProject.id)).data || []
@@ -208,9 +212,8 @@ export function AdminProjectsContent() {
         featured: false,
         members: [],
       })
+      setIsSubmitting(false)
     } catch (error: any) {
-      alert(error.message || "Failed to update project")
-    } finally {
       setIsSubmitting(false)
     }
   }
@@ -219,12 +222,14 @@ export function AdminProjectsContent() {
     if (!deleteId) return
 
     try {
-      const { error } = await deleteProject(deleteId)
-      if (error) throw error
+      const { error } = await deleteProjectByAdmin(deleteId)
+      if (error) {
+        return
+      }
       await fetchProjects()
       setDeleteId(null)
     } catch (error: any) {
-      alert(error.message || "Failed to delete project")
+      // Error deleting project
     }
   }
 
@@ -278,7 +283,26 @@ export function AdminProjectsContent() {
             <p className="mt-1 text-sm text-muted-foreground sm:text-base">Create and manage community projects</p>
           </div>
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog 
+          open={isCreateOpen} 
+          onOpenChange={(open) => {
+            setIsCreateOpen(open)
+            if (!open) {
+              // Reset form and state when dialog closes
+              setFormData({
+                name: "",
+                team_name: "",
+                track: "Engineering",
+                stage: "Idea",
+                description: "",
+                progress: 0,
+                featured: false,
+                members: [],
+              })
+              setIsSubmitting(false)
+            }
+          }}
+        >
           <DialogTrigger asChild>
             <Button className="w-full border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-[#5C7AEA] hover:shadow-[6px_6px_0px_0px_#1A1A1A] sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />

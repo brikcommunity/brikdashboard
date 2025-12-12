@@ -11,13 +11,17 @@ async function verifyAdmin(): Promise<{ isAdmin: boolean; userId?: string; error
     return { isAdmin: false, error: 'Not authenticated' }
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('role')
     .eq('id', session.user.id)
-    .single()
+    .maybeSingle()
 
-  if (profile?.role !== 'admin') {
+  if (profileError || !profile) {
+    return { isAdmin: false, error: 'Profile not found' }
+  }
+
+  if (profile.role !== 'admin') {
     return { isAdmin: false, error: 'Admin access required' }
   }
 
@@ -215,25 +219,61 @@ export async function updateAnnouncementByAdmin(announcementId: string, updates:
   title?: string
   content?: string
   tag?: string
-  image_url?: string
+  imageUrl?: string
 }) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { data: null, error: adminError || 'Admin access required' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
+    }
 
+    // Validate announcement ID
+    if (!announcementId) {
+      return { data: null, error: 'Announcement ID is required' }
+    }
+
+    // Clean updates - remove undefined values
     const cleanUpdates: Record<string, any> = {}
     Object.entries(updates).forEach(([key, value]) => {
-      if (value !== undefined) cleanUpdates[key] = value
+      if (value !== undefined) {
+        // Map imageUrl to image_url for database
+        if (key === 'imageUrl') {
+          cleanUpdates['image_url'] = value
+        } else {
+          cleanUpdates[key] = value
+        }
+      }
     })
 
-    const { data, error } = await supabase
-      .from('announcements')
-      .update(cleanUpdates)
-      .eq('id', announcementId)
-      .select()
-      .single()
+    if (Object.keys(cleanUpdates).length === 0) {
+      return { data: null, error: 'No updates provided' }
+    }
 
-    return { data, error: error ? error.message : null }
+    // Get session for API call
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
+    // Call API route that uses service role key to bypass RLS
+    const response = await fetch('/api/admin/update-announcement', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ announcementId, updates: cleanUpdates }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to update announcement' }
+    }
+
+    // Success
+    return { data: result.data, error: null }
   } catch (error: any) {
     return { data: null, error: error.message || 'Failed to update announcement' }
   }
@@ -241,17 +281,43 @@ export async function updateAnnouncementByAdmin(announcementId: string, updates:
 
 export async function deleteAnnouncementByAdmin(announcementId: string) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { error: adminError || 'Admin access required' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
+    }
 
-    const { error } = await supabase
-      .from('announcements')
-      .delete()
-      .eq('id', announcementId)
+    // Validate announcement ID
+    if (!announcementId) {
+      return { data: null, error: 'Announcement ID is required' }
+    }
 
-    return { error: error ? error.message : null }
+    // Get session for API call
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
+    // Call API route that uses service role key to bypass RLS
+    const response = await fetch('/api/admin/delete-announcement', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ announcementId }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to delete announcement' }
+    }
+
+    // Success
+    return { data: result.data || { id: announcementId, deleted: true }, error: null }
   } catch (error: any) {
-    return { error: error.message || 'Failed to delete announcement' }
+    return { data: null, error: error.message || 'Failed to delete announcement' }
   }
 }
 
@@ -303,22 +369,51 @@ export async function updateEventByAdmin(eventId: string, updates: {
   image_url?: string
 }) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { data: null, error: adminError || 'Admin access required' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
+    }
 
+    // Validate event ID
+    if (!eventId) {
+      return { data: null, error: 'Event ID is required' }
+    }
+
+    // Clean updates - remove undefined values
     const cleanUpdates: Record<string, any> = {}
     Object.entries(updates).forEach(([key, value]) => {
       if (value !== undefined) cleanUpdates[key] = value
     })
 
-    const { data, error } = await supabase
-      .from('calendar_events')
-      .update(cleanUpdates)
-      .eq('id', eventId)
-      .select()
-      .single()
+    if (Object.keys(cleanUpdates).length === 0) {
+      return { data: null, error: 'No updates provided' }
+    }
 
-    return { data, error: error ? error.message : null }
+    // Get session for API call
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
+    // Call API route that uses service role key to bypass RLS
+    const response = await fetch('/api/admin/update-event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ eventId, updates: cleanUpdates }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to update event' }
+    }
+
+    // Success
+    return { data: result.data, error: null }
   } catch (error: any) {
     return { data: null, error: error.message || 'Failed to update event' }
   }
@@ -326,17 +421,43 @@ export async function updateEventByAdmin(eventId: string, updates: {
 
 export async function deleteEventByAdmin(eventId: string) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { error: adminError || 'Admin access required' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
+    }
 
-    const { error } = await supabase
-      .from('calendar_events')
-      .delete()
-      .eq('id', eventId)
+    // Validate event ID
+    if (!eventId || typeof eventId !== 'string' || eventId.trim() === '') {
+      return { data: null, error: 'Event ID is required' }
+    }
 
-    return { error: error ? error.message : null }
+    // Get session for API call
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      return { data: null, error: 'Not authenticated' }
+    }
+
+    // Call API route that uses service role key to bypass RLS
+    const response = await fetch('/api/admin/delete-event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ eventId }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to delete event' }
+    }
+
+    // Success
+    return { data: result.data || { id: eventId, deleted: true }, error: null }
   } catch (error: any) {
-    return { error: error.message || 'Failed to delete event' }
+    return { data: null, error: error.message || 'Failed to delete event' }
   }
 }
 

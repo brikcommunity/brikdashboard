@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,20 +18,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ArrowLeft, Plus, Pencil, Trash2, Upload, Search, MoreHorizontal, Loader2 } from "lucide-react"
+import { ArrowLeft, Plus, Pencil, Trash2, Search, MoreHorizontal, Loader2, Upload, X } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   getCalendarEvents,
-  createCalendarEvent,
-  updateCalendarEvent,
-  deleteCalendarEvent,
   type CalendarEvent,
 } from "@/lib/database"
-import { useAuth } from "@/contexts/auth-context"
+import { createEventByAdmin, updateEventByAdmin, deleteEventByAdmin } from "@/lib/admin"
 import { formatDistanceToNow } from "date-fns"
 
 export function AdminCalendarContent() {
-  const { profile } = useAuth()
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -39,15 +36,38 @@ export function AdminCalendarContent() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [editImagePreview, setEditImagePreview] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const editFileInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
     title: "",
-    date: "",
-    time: "",
+    fromDate: "",
+    toDate: "",
+    fromTime: "",
+    toTime: "",
     type: "event" as "event" | "deadline",
     description: "",
     image_url: "",
   })
+
+  // Ensure all form values are always strings (never undefined)
+  const safeFormData = {
+    title: formData.title || "",
+    fromDate: formData.fromDate || "",
+    toDate: formData.toDate || "",
+    fromTime: formData.fromTime || "",
+    toTime: formData.toTime || "",
+    type: formData.type || "event",
+    description: formData.description || "",
+    image_url: formData.image_url || "",
+  }
 
   useEffect(() => {
     fetchEvents()
@@ -70,84 +90,272 @@ export function AdminCalendarContent() {
     (e) => e.title.toLowerCase().includes(search.toLowerCase()) || (e.type && e.type.toLowerCase().includes(search.toLowerCase())),
   )
 
+  const resetCreateForm = () => {
+    setFormData({ 
+      title: "", 
+      fromDate: "", 
+      toDate: "", 
+      fromTime: "", 
+      toTime: "", 
+      type: "event", 
+      description: "", 
+      image_url: "" 
+    })
+    setImagePreview(null)
+    setCreateError(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
   const handleCreate = async () => {
-    if (!formData.title.trim() || !formData.date) {
-      alert("Title and date are required")
+    // Validation
+    if (!safeFormData.title.trim()) {
+      setCreateError("Title is required")
+      return
+    }
+    if (!safeFormData.fromDate) {
+      setCreateError("From Date is required")
       return
     }
 
     setIsSubmitting(true)
+    setCreateError(null)
+    
     try {
-      const { error } = await createCalendarEvent({
-        title: formData.title,
-        date: formData.date,
-        time: formData.time || null,
-        type: formData.type,
-        description: formData.description || null,
-        image_url: formData.image_url || null,
-        created_by: profile?.id || null,
-      })
+      // Build description with date and time range
+      let description = safeFormData.description.trim()
+      const dateTimeParts: string[] = []
+      
+      // Add date range if multi-day event
+      if (safeFormData.toDate && safeFormData.toDate !== safeFormData.fromDate) {
+        const fromDateStr = new Date(safeFormData.fromDate).toLocaleDateString()
+        const toDateStr = new Date(safeFormData.toDate).toLocaleDateString()
+        dateTimeParts.push(`Event runs from ${fromDateStr} to ${toDateStr}`)
+      }
+      
+      // Add time range if provided
+      if (safeFormData.fromTime || safeFormData.toTime) {
+        if (safeFormData.fromTime && safeFormData.toTime && safeFormData.fromTime !== safeFormData.toTime) {
+          dateTimeParts.push(`Time: ${safeFormData.fromTime} - ${safeFormData.toTime}`)
+        } else if (safeFormData.fromTime) {
+          dateTimeParts.push(`Time: ${safeFormData.fromTime}`)
+        }
+      }
+      
+      // Combine date/time info with description
+      if (dateTimeParts.length > 0) {
+        const dateTimeInfo = dateTimeParts.join('\n')
+        description = description ? `${dateTimeInfo}\n\n${description}` : dateTimeInfo
+      }
 
-      if (error) throw error
-      await fetchEvents()
+      // Create the event
+      const { data, error } = await createEventByAdmin(
+        safeFormData.title.trim(),
+        safeFormData.fromDate,
+        safeFormData.fromTime || undefined,
+        description || undefined,
+        safeFormData.type || undefined,
+        safeFormData.image_url || undefined
+      )
+
+      if (error) {
+        const errorMsg = typeof error === 'string' ? error : (error?.message || "Failed to create event")
+        setCreateError(errorMsg)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!data) {
+        setCreateError("Failed to create event - no data returned")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Success - close dialog first, then refresh events
       setIsCreateOpen(false)
-      setFormData({ title: "", date: "", time: "", type: "event", description: "", image_url: "" })
+      resetCreateForm()
+      setIsSubmitting(false)
+      
+      // Refresh events list
+      await fetchEvents()
     } catch (error: any) {
-      alert(error.message || "Failed to create event")
-    } finally {
+      setCreateError(error?.message || "An unexpected error occurred")
       setIsSubmitting(false)
     }
   }
 
   const handleEdit = async () => {
-    if (!editingEvent || !formData.title.trim() || !formData.date) {
-      alert("Title and date are required")
+    if (!editingEvent || !safeFormData.title.trim() || !safeFormData.fromDate) {
+      setEditError("Title and From Date are required")
       return
     }
 
     setIsSubmitting(true)
+    setEditError(null)
+    
     try {
-      const { error } = await updateCalendarEvent(editingEvent.id, {
-        title: formData.title,
-        date: formData.date,
-        time: formData.time || null,
-        type: formData.type,
-        description: formData.description || null,
-        image_url: formData.image_url || null,
+      // Build description with date and time range
+      let description = safeFormData.description.trim()
+      const dateTimeParts: string[] = []
+      
+      // Add date range if multi-day event
+      if (safeFormData.toDate && safeFormData.toDate !== safeFormData.fromDate) {
+        const fromDateStr = new Date(safeFormData.fromDate).toLocaleDateString()
+        const toDateStr = new Date(safeFormData.toDate).toLocaleDateString()
+        dateTimeParts.push(`Event runs from ${fromDateStr} to ${toDateStr}`)
+      }
+      
+      // Add time range if provided
+      if (safeFormData.fromTime || safeFormData.toTime) {
+        if (safeFormData.fromTime && safeFormData.toTime && safeFormData.fromTime !== safeFormData.toTime) {
+          dateTimeParts.push(`Time: ${safeFormData.fromTime} - ${safeFormData.toTime}`)
+        } else if (safeFormData.fromTime) {
+          dateTimeParts.push(`Time: ${safeFormData.fromTime}`)
+        }
+      }
+      
+      if (dateTimeParts.length > 0) {
+        const dateTimeInfo = dateTimeParts.join('\n')
+        description = description ? `${dateTimeInfo}\n\n${description}` : dateTimeInfo
+      }
+
+      const { data, error } = await updateEventByAdmin(editingEvent.id, {
+        title: safeFormData.title.trim(),
+        date: safeFormData.fromDate,
+        time: safeFormData.fromTime || undefined,
+        description: description || undefined,
+        type: safeFormData.type || undefined,
+        image_url: safeFormData.image_url || undefined,
       })
 
-      if (error) throw error
+      if (error) {
+        const errorMsg = typeof error === 'string' ? error : (error?.message || "Failed to update event")
+        setEditError(errorMsg)
+        setIsSubmitting(false)
+        return
+      }
+
+      if (!data) {
+        setEditError("Failed to update event - no data returned")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Success - refresh events and close dialog
       await fetchEvents()
       setEditingEvent(null)
-      setFormData({ title: "", date: "", time: "", type: "event", description: "", image_url: "" })
+      setFormData({ 
+        title: "", 
+        fromDate: "", 
+        toDate: "", 
+        fromTime: "", 
+        toTime: "", 
+        type: "event", 
+        description: "", 
+        image_url: "" 
+      })
+      setEditImagePreview(null)
+      setEditError(null)
+      setIsSubmitting(false)
     } catch (error: any) {
-      alert(error.message || "Failed to update event")
-    } finally {
+      setEditError(error?.message || "An unexpected error occurred")
       setIsSubmitting(false)
     }
   }
 
   const handleDelete = async () => {
-    if (!deleteId) return
+    // Validate deleteId exists
+    if (!deleteId) {
+      setDeleteError("No event selected for deletion")
+      return
+    }
+
+    // Set loading state
+    setIsDeleting(true)
+    setDeleteError(null)
 
     try {
-      const { error } = await deleteCalendarEvent(deleteId)
-      if (error) throw error
+      // Call delete function
+      const result = await deleteEventByAdmin(deleteId)
+      
+      // Check for errors
+      if (result.error) {
+        const errorMsg = typeof result.error === 'string' 
+          ? result.error 
+          : (result.error?.message || "Failed to delete event")
+        setDeleteError(errorMsg)
+        setIsDeleting(false)
+        return
+      }
+
+      // Verify deletion was successful
+      if (!result.data) {
+        setDeleteError("Failed to delete event - no confirmation received")
+        setIsDeleting(false)
+        return
+      }
+
+      // Success - refresh events list
       await fetchEvents()
+      
+      // Close dialog and reset state
       setDeleteId(null)
+      setDeleteError(null)
+      setIsDeleting(false)
     } catch (error: any) {
-      alert(error.message || "Failed to delete event")
+      // Handle unexpected errors
+      const errorMsg = error?.message || error?.toString() || "An unexpected error occurred"
+      setDeleteError(errorMsg)
+      setIsDeleting(false)
     }
   }
 
   const openEditDialog = (event: CalendarEvent) => {
     setEditingEvent(event)
+    
+    // Parse date and time range from description if it exists
+    let fromDate = event.date
+    let toDate = ""
+    let fromTime = event.time || ""
+    let toTime = ""
+    let description = event.description || ""
+    
+    // Check if description contains date range pattern
+    const dateRangeMatch = description.match(/Event runs from (.+?) to (.+?)(\n|$)/)
+    if (dateRangeMatch) {
+      try {
+        fromDate = new Date(dateRangeMatch[1]).toISOString().split('T')[0]
+        toDate = new Date(dateRangeMatch[2]).toISOString().split('T')[0]
+        description = description.replace(/Event runs from .+? to .+?(\n|$)/, '').trim()
+      } catch {
+        // If parsing fails, use original date
+      }
+    }
+    
+    // Check if description contains time range pattern
+    const timeRangeMatch = description.match(/Time: (.+?)(\n|$)/)
+    if (timeRangeMatch) {
+      const timeStr = timeRangeMatch[1].trim()
+      if (timeStr.includes(' - ')) {
+        const [start, end] = timeStr.split(' - ')
+        fromTime = start.trim()
+        toTime = end.trim()
+      } else {
+        fromTime = timeStr
+      }
+      description = description.replace(/Time: .+?(\n|$)/, '').trim()
+    }
+    
+    setEditImagePreview(event.image_url || null)
     setFormData({
-      title: event.title,
-      date: event.date,
-      time: event.time || "",
+      title: event.title || "",
+      fromDate: fromDate || "",
+      toDate: toDate || "",
+      fromTime: fromTime || "",
+      toTime: toTime || "",
       type: (event.type as "event" | "deadline") || "event",
-      description: event.description || "",
+      description: description || "",
       image_url: event.image_url || "",
     })
   }
@@ -158,6 +366,88 @@ export function AdminCalendarContent() {
       day: "numeric",
       year: "numeric",
     })
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+      return
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024
+    if (file.size > maxSize) {
+      return
+    }
+
+    // Show preview immediately
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      if (isEdit) {
+        setEditImagePreview(reader.result as string)
+      } else {
+        setImagePreview(reader.result as string)
+      }
+    }
+    reader.readAsDataURL(file)
+
+    // Upload to server
+    setUploadingImage(true)
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !session) {
+        throw new Error('Not authenticated. Please log in.')
+      }
+
+      const uploadFormData = new FormData()
+      uploadFormData.append('file', file)
+
+      const response = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: uploadFormData,
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Upload failed')
+      }
+
+      const { url } = await response.json()
+      // Update form data with the uploaded image URL
+      setFormData((prev) => ({ ...prev, image_url: url }))
+    } catch (error: any) {
+      // Reset preview on error
+      if (isEdit) {
+        setEditImagePreview(null)
+      } else {
+        setImagePreview(null)
+      }
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleImageRemove = (isEdit: boolean = false) => {
+    if (isEdit) {
+      setEditImagePreview(null)
+      if (editFileInputRef.current) {
+        editFileInputRef.current.value = ''
+      }
+    } else {
+      setImagePreview(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+    // Clear image URL from form data
+    setFormData((prev) => ({ ...prev, image_url: "" }))
   }
 
   return (
@@ -176,7 +466,17 @@ export function AdminCalendarContent() {
             <h1 className="font-mono text-2xl font-bold tracking-tight sm:text-3xl">Calendar Manager</h1>
             <p className="mt-1 text-sm text-muted-foreground">Schedule and manage events and deadlines</p>
           </div>
-          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          <Dialog 
+            open={isCreateOpen} 
+            onOpenChange={(open) => {
+              setIsCreateOpen(open)
+              if (!open) {
+                // Reset form when dialog closes
+                resetCreateForm()
+                setIsSubmitting(false)
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="w-full border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-[#5C7AEA] sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
@@ -189,10 +489,10 @@ export function AdminCalendarContent() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
+                  <Label htmlFor="title">Title *</Label>
                   <Input
                     id="title"
-                    value={formData.title}
+                    value={safeFormData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     placeholder="Enter event title"
                     className="border-2"
@@ -200,60 +500,133 @@ export function AdminCalendarContent() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="date">Date</Label>
+                    <Label htmlFor="fromDate">From Date *</Label>
                     <Input
-                      id="date"
+                      id="fromDate"
                       type="date"
-                      value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                      value={safeFormData.fromDate}
+                      onChange={(e) => setFormData({ ...formData, fromDate: e.target.value })}
                       className="border-2"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="time">Time</Label>
+                    <Label htmlFor="toDate">To Date (Optional)</Label>
                     <Input
-                      id="time"
-                      type="time"
-                      value={formData.time}
-                      onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                      id="toDate"
+                      type="date"
+                      value={safeFormData.toDate}
+                      min={safeFormData.fromDate || undefined}
+                      onChange={(e) => setFormData({ ...formData, toDate: e.target.value })}
                       className="border-2"
                     />
+                    <p className="text-xs text-muted-foreground">Leave empty for single-day events</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="fromTime">From Time (Optional)</Label>
+                    <Input
+                      id="fromTime"
+                      type="time"
+                      value={safeFormData.fromTime}
+                      onChange={(e) => setFormData({ ...formData, fromTime: e.target.value })}
+                      className="border-2"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="toTime">To Time (Optional)</Label>
+                    <Input
+                      id="toTime"
+                      type="time"
+                      value={safeFormData.toTime}
+                      min={safeFormData.fromTime || undefined}
+                      onChange={(e) => setFormData({ ...formData, toTime: e.target.value })}
+                      className="border-2"
+                    />
+                    <p className="text-xs text-muted-foreground">Leave empty for single time</p>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="type">Type</Label>
-                  <select
-                    id="type"
-                    value={formData.type}
-                    onChange={(e) => setFormData({ ...formData, type: e.target.value as "event" | "deadline" })}
-                    className="w-full border-2 border-border bg-white p-2"
-                  >
+                    <select
+                      id="type"
+                      value={safeFormData.type}
+                      onChange={(e) => setFormData({ ...formData, type: e.target.value as "event" | "deadline" })}
+                      className="w-full border-2 border-border bg-white p-2"
+                    >
                     <option value="event">Event</option>
                     <option value="deadline">Deadline</option>
                   </select>
                 </div>
                 <div className="space-y-2">
                   <Label>Cover Image</Label>
-                  <div className="flex h-32 cursor-pointer items-center justify-center border-2 border-dashed border-border bg-[#F7F4EB] hover:bg-[#AEC6FF]/20 transition-colors">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Upload className="h-8 w-8" />
-                      <span className="text-sm">Click to upload image</span>
-                    </div>
+                  <div className="space-y-2">
+                    {imagePreview || safeFormData.image_url ? (
+                      <div className="relative">
+                        <img
+                          src={imagePreview || safeFormData.image_url || undefined}
+                          alt="Event cover"
+                          className="h-48 w-full object-cover border-2 border-border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleImageRemove(false)}
+                          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border-2 border-border bg-red-500 text-white shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-red-600"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div
+                        className="flex h-32 cursor-pointer items-center justify-center border-2 border-dashed border-border bg-[#F7F4EB] hover:bg-[#AEC6FF]/20 transition-colors"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          {uploadingImage ? (
+                            <Loader2 className="h-8 w-8 animate-spin" />
+                          ) : (
+                            <>
+                              <Upload className="h-8 w-8" />
+                              <span className="text-sm">Click to upload image</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                      onChange={(e) => handleImageUpload(e, false)}
+                      className="hidden"
+                      disabled={uploadingImage}
+                    />
+                    <p className="text-xs text-muted-foreground">Max 5MB • JPEG, PNG, GIF, WebP</p>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
                   <Textarea
                     id="description"
-                    value={formData.description}
+                    value={safeFormData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Add event details..."
                     className="min-h-24 border-2"
                   />
                 </div>
+                {createError && (
+                  <div className="rounded-md bg-red-50 border-2 border-red-200 p-3">
+                    <p className="text-sm text-red-800">{createError}</p>
+                  </div>
+                )}
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button variant="outline" className="border-2 bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      className="border-2 bg-transparent"
+                      onClick={() => setCreateError(null)}
+                      disabled={isSubmitting}
+                    >
                       Cancel
                     </Button>
                   </DialogClose>
@@ -376,48 +749,93 @@ export function AdminCalendarContent() {
       </Card>
 
       {/* Edit Dialog */}
-      <Dialog open={!!editingEvent} onOpenChange={(open) => !open && setEditingEvent(null)}>
+      <Dialog 
+        open={!!editingEvent} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingEvent(null)
+            setFormData({ 
+              title: "", 
+              fromDate: "", 
+              toDate: "", 
+              fromTime: "", 
+              toTime: "", 
+              type: "event", 
+              description: "", 
+              image_url: "" 
+            })
+            setEditImagePreview(null)
+            setIsSubmitting(false)
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="font-mono">Edit Event</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-title">Title</Label>
+              <Label htmlFor="edit-title">Title *</Label>
               <Input
                 id="edit-title"
-                value={formData.title}
+                value={safeFormData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 className="border-2"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-date">Date</Label>
+                <Label htmlFor="edit-fromDate">From Date *</Label>
                 <Input
-                  id="edit-date"
+                  id="edit-fromDate"
                   type="date"
-                  value={formData.date}
-                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  value={safeFormData.fromDate}
+                  onChange={(e) => setFormData({ ...formData, fromDate: e.target.value })}
                   className="border-2"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-time">Time</Label>
+                <Label htmlFor="edit-toDate">To Date (Optional)</Label>
                 <Input
-                  id="edit-time"
-                  type="time"
-                  value={formData.time}
-                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                  id="edit-toDate"
+                  type="date"
+                  value={safeFormData.toDate}
+                  min={safeFormData.fromDate || undefined}
+                  onChange={(e) => setFormData({ ...formData, toDate: e.target.value })}
                   className="border-2"
                 />
+                <p className="text-xs text-muted-foreground">Leave empty for single-day events</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-fromTime">From Time (Optional)</Label>
+                <Input
+                  id="edit-fromTime"
+                  type="time"
+                  value={safeFormData.fromTime}
+                  onChange={(e) => setFormData({ ...formData, fromTime: e.target.value })}
+                  className="border-2"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-toTime">To Time (Optional)</Label>
+                <Input
+                  id="edit-toTime"
+                  type="time"
+                  value={safeFormData.toTime}
+                  min={safeFormData.fromTime || undefined}
+                  onChange={(e) => setFormData({ ...formData, toTime: e.target.value })}
+                  className="border-2"
+                />
+                <p className="text-xs text-muted-foreground">Leave empty for single time</p>
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-type">Type</Label>
               <select
                 id="edit-type"
-                value={formData.type}
+                value={safeFormData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value as "event" | "deadline" })}
                 className="w-full border-2 border-border bg-white p-2"
               >
@@ -426,26 +844,87 @@ export function AdminCalendarContent() {
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-image_url">Image URL</Label>
-              <Input
-                id="edit-image_url"
-                value={formData.image_url}
-                onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                placeholder="https://example.com/image.jpg"
-                className="border-2"
-              />
+              <Label>Cover Image</Label>
+              <div className="space-y-2">
+                {editImagePreview || safeFormData.image_url ? (
+                  <div className="relative">
+                    <img
+                      src={editImagePreview || safeFormData.image_url || undefined}
+                      alt="Event cover"
+                      className="h-48 w-full object-cover border-2 border-border"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleImageRemove(true)}
+                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border-2 border-border bg-red-500 text-white shadow-[2px_2px_0px_0px_#1A1A1A] hover:bg-red-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="flex h-32 cursor-pointer items-center justify-center border-2 border-dashed border-border bg-[#F7F4EB] hover:bg-[#AEC6FF]/20 transition-colors"
+                    onClick={() => editFileInputRef.current?.click()}
+                  >
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      {uploadingImage ? (
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                      ) : (
+                        <>
+                          <Upload className="h-8 w-8" />
+                          <span className="text-sm">Click to upload image</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <input
+                  ref={editFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                  onChange={(e) => handleImageUpload(e, true)}
+                  className="hidden"
+                  disabled={uploadingImage}
+                />
+                <p className="text-xs text-muted-foreground">Max 5MB • JPEG, PNG, GIF, WebP</p>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-description">Description</Label>
               <Textarea
                 id="edit-description"
-                value={formData.description}
+                value={safeFormData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="min-h-24 border-2"
               />
             </div>
+            {editError && (
+              <div className="rounded-md bg-red-50 border-2 border-red-200 p-3">
+                <p className="text-sm text-red-800">{editError}</p>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingEvent(null)} className="border-2 bg-transparent">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setEditingEvent(null)
+                  setFormData({ 
+                    title: "", 
+                    fromDate: "", 
+                    toDate: "", 
+                    fromTime: "", 
+                    toTime: "", 
+                    type: "event", 
+                    description: "", 
+                    image_url: "" 
+                  })
+                  setEditImagePreview(null)
+                  setEditError(null)
+                  setIsSubmitting(false)
+                }} 
+                className="border-2 bg-transparent"
+                disabled={isSubmitting}
+              >
                 Cancel
               </Button>
               <Button
@@ -468,7 +947,16 @@ export function AdminCalendarContent() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+      <Dialog 
+        open={!!deleteId} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteId(null)
+            setDeleteError(null)
+            setIsDeleting(false)
+          }
+        }}
+      >
         <DialogContent className="border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-mono">Delete Event</DialogTitle>
@@ -476,18 +964,38 @@ export function AdminCalendarContent() {
           <p className="text-sm text-muted-foreground">
             Are you sure you want to delete this event? This action cannot be undone.
           </p>
+          {deleteError && (
+            <div className="rounded-md bg-red-50 border-2 border-red-200 p-3">
+              <p className="text-sm text-red-800">{deleteError}</p>
+            </div>
+          )}
           <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline" className="border-2 bg-transparent">
-                Cancel
-              </Button>
-            </DialogClose>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setDeleteId(null)
+                setDeleteError(null)
+                setIsDeleting(false)
+              }}
+              className="border-2 bg-transparent"
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
             <Button
               variant="destructive"
-              onClick={() => deleteId && handleDelete(deleteId)}
+              onClick={handleDelete}
+              disabled={isDeleting}
               className="border-2 shadow-[4px_4px_0px_0px_#1A1A1A]"
             >
-              Delete
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -495,3 +1003,6 @@ export function AdminCalendarContent() {
     </div>
   )
 }
+
+
+

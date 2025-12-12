@@ -37,51 +37,6 @@ export function AnnouncementsContent() {
             Stay updated with the latest news and updates
           </p>
         </div>
-        {isAdmin && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button className="w-full border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-[#5C7AEA] hover:shadow-[6px_6px_0px_0px_#1A1A1A] sm:w-auto">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Announcement
-              </Button>
-            </DialogTrigger>
-          <DialogContent className="max-h-[90vh] overflow-y-auto border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="font-mono">Create Announcement</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-4">
-              <div className="space-y-2">
-                <Label htmlFor="title">Title</Label>
-                <Input id="title" placeholder="Enter announcement title" className="border-2" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="tag">Tag</Label>
-                <select id="tag" className="w-full border-2 border-border bg-white p-2">
-                  <option>Event</option>
-                  <option>Update</option>
-                  <option>Reminder</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label>Cover Image</Label>
-                <div className="flex h-32 cursor-pointer items-center justify-center border-2 border-dashed border-border bg-[#F7F4EB] transition-colors hover:bg-[#AEC6FF]/20">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <Upload className="h-8 w-8" />
-                    <span className="text-sm">Click to upload image</span>
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="content">Content</Label>
-                <Textarea id="content" placeholder="Write your announcement..." className="min-h-32 border-2" />
-              </div>
-              <Button className="w-full border-2 border-border bg-[#3A5FCD] text-white shadow-[4px_4px_0px_0px_#1A1A1A]">
-                Publish Announcement
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-        )}
       </div>
 
       {/* Filters */}
@@ -103,16 +58,16 @@ export function AnnouncementsContent() {
       </div>
 
       {/* Announcements Grid */}
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filteredAnnouncements.map((announcement) => (
           <Dialog key={announcement.id}>
             <DialogTrigger asChild>
               <Card
-                className="cursor-pointer border-2 shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:shadow-[6px_6px_0px_0px_#1A1A1A]"
+                className="cursor-pointer border-2 shadow-[4px_4px_0px_0px_#1A1A1A] transition-all hover:shadow-[6px_6px_0px_0px_#1A1A1A] overflow-hidden"
                 onClick={() => setSelectedAnnouncement(announcement)}
               >
-                {announcement.image_url && (
-                  <div className="relative h-40 w-full overflow-hidden border-b-2 border-border">
+                {announcement.image_url ? (
+                  <div className="relative aspect-square w-full overflow-hidden border-b-2 border-border">
                     <img
                       src={announcement.image_url || "/placeholder.svg"}
                       alt={announcement.title}
@@ -124,10 +79,17 @@ export function AnnouncementsContent() {
                       </div>
                     </div>
                   </div>
+                ) : (
+                  <div className="aspect-square w-full border-b-2 border-border bg-[#F7F4EB] flex items-center justify-center">
+                    <div className="text-center text-muted-foreground">
+                      <ImageIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-xs">No image</p>
+                    </div>
+                  </div>
                 )}
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base sm:text-lg">{announcement.title}</CardTitle>
+                    <CardTitle className="text-base sm:text-lg line-clamp-2">{announcement.title}</CardTitle>
                     {announcement.tag && (
                       <Badge
                         variant="outline"
@@ -139,10 +101,10 @@ export function AnnouncementsContent() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground line-clamp-3">
                     {announcement.content
-                      ? announcement.content.length > 100
-                        ? announcement.content.substring(0, 100) + "..."
+                      ? announcement.content.length > 150
+                        ? announcement.content.substring(0, 150) + "..."
                         : announcement.content
                       : ""}
                   </p>
@@ -154,7 +116,7 @@ export function AnnouncementsContent() {
                 </CardContent>
               </Card>
             </DialogTrigger>
-            <DialogContent className="max-h-[90vh] overflow-y-auto border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-lg">
+            <DialogContent className="max-h-[95vh] overflow-y-auto border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-2xl">
               <DialogHeader>
                 <div className="flex items-center gap-2">
                   <DialogTitle className="font-mono">{announcement.title}</DialogTitle>
@@ -165,15 +127,60 @@ export function AnnouncementsContent() {
               </DialogHeader>
               <div className="space-y-4 pt-4">
                 {announcement.image_url && (
-                  <div className="overflow-hidden border-2 border-border">
+                  <div className="overflow-hidden border-2 border-border rounded-sm">
                     <img
                       src={announcement.image_url || "/placeholder.svg"}
                       alt={announcement.title}
-                      className="h-48 w-full object-cover"
+                      className="w-full aspect-square object-cover"
                     />
                   </div>
                 )}
-                {announcement.content && <p className="text-sm leading-relaxed">{announcement.content}</p>}
+                {announcement.content && (
+                  <div className="space-y-2">
+                    {(() => {
+                      // Parse and display date/time info separately if it exists
+                      let content = announcement.content
+                      const dateRangeMatch = content.match(/Announcement runs from (.+?) to (.+?)(\n|$)/i)
+                      const singleDateMatch = content.match(/Date: (.+?)(\n|$)/i)
+                      const timeMatch = content.match(/Time: (.+?)(\n|$)/i)
+                      
+                      // Remove date/time metadata from content
+                      if (dateRangeMatch) {
+                        content = content.replace(/Announcement runs from .+? to .+?(\n|$)/i, '').trim()
+                      } else if (singleDateMatch) {
+                        content = content.replace(/Date: .+?(\n|$)/i, '').trim()
+                      }
+                      if (timeMatch) {
+                        content = content.replace(/Time: .+?(\n|$)/i, '').trim()
+                      }
+                      
+                      return (
+                        <>
+                          {(dateRangeMatch || singleDateMatch || timeMatch) && (
+                            <div className="rounded-md bg-[#F7F4EB] border-2 border-border p-3 space-y-1">
+                              {dateRangeMatch && (
+                                <p className="text-sm font-medium">
+                                  <span className="text-muted-foreground">Date:</span> {dateRangeMatch[1].trim()} - {dateRangeMatch[2].trim()}
+                                </p>
+                              )}
+                              {singleDateMatch && !dateRangeMatch && (
+                                <p className="text-sm font-medium">
+                                  <span className="text-muted-foreground">Date:</span> {singleDateMatch[1].trim()}
+                                </p>
+                              )}
+                              {timeMatch && (
+                                <p className="text-sm font-medium">
+                                  <span className="text-muted-foreground">Time:</span> {timeMatch[1].trim()}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          {content && <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p>}
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Posted {formatDistanceToNow(new Date(announcement.created_at), { addSuffix: true })}
                 </p>

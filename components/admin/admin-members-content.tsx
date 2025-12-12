@@ -49,18 +49,10 @@ interface Member extends Profile {
 
 // Helper function to convert Profile to Member
 function profileToMember(profile: Profile): Member {
-  const initials = profile.full_name
-    ? profile.full_name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
-    : profile.username.slice(0, 2).toUpperCase()
-
   return {
     ...profile,
-    avatar: initials,
+    // Keep the original avatar URL from profile (not initials)
+    avatar: profile.avatar || "",
     email: `${profile.username}@brik.com`,
     joinedAt: format(new Date(profile.created_at), "MMM d, yyyy"),
   }
@@ -635,10 +627,17 @@ export function AdminMembersContent() {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8 border-2 border-border">
-                          <AvatarImage
-                            src={`/placeholder.svg?height=32&width=32&query=${member.full_name || member.username} portrait`}
-                          />
-                          <AvatarFallback className="bg-[#AEC6FF] text-xs font-bold">{member.avatar}</AvatarFallback>
+                          <AvatarImage src={member.avatar || undefined} />
+                          <AvatarFallback className="bg-[#AEC6FF] text-xs font-bold">
+                            {member.full_name
+                              ? member.full_name
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .join("")
+                                  .toUpperCase()
+                                  .slice(0, 2)
+                              : member.username.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
                         </Avatar>
                         <div>
                           <p className="font-medium text-sm">{member.full_name || member.username}</p>
@@ -737,10 +736,17 @@ export function AdminMembersContent() {
             <div className="space-y-4 pt-4">
               <div className="flex items-center gap-4">
                 <Avatar className="h-16 w-16 border-2 border-border">
-                  <AvatarImage
-                    src={`/placeholder.svg?height=64&width=64&query=${viewingMember.full_name || viewingMember.username} portrait`}
-                  />
-                  <AvatarFallback className="bg-[#AEC6FF] text-lg font-bold">{viewingMember.avatar}</AvatarFallback>
+                  <AvatarImage src={viewingMember.avatar || undefined} />
+                  <AvatarFallback className="bg-[#AEC6FF] text-lg font-bold">
+                    {viewingMember.full_name
+                      ? viewingMember.full_name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .toUpperCase()
+                          .slice(0, 2)
+                      : viewingMember.username.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
                 </Avatar>
                 <div>
                   <h3 className="font-mono text-lg font-bold">{viewingMember.full_name || viewingMember.username}</h3>

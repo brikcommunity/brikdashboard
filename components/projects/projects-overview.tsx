@@ -50,18 +50,22 @@ export function ProjectsOverview() {
 
                     return {
                         ...project,
-                        members: members.map((m: any) => ({
-                            id: m.member_id,
-                            name: m.profiles?.full_name || m.profiles?.username || "Unknown",
-                            avatar: m.profiles?.full_name
+                        members: members.map((m: any) => {
+                            const initials = m.profiles?.full_name
                                 ? m.profiles.full_name
                                       .split(" ")
                                       .map((n: string) => n[0])
                                       .join("")
                                       .toUpperCase()
                                       .slice(0, 2)
-                                : "??",
-                        })),
+                                : m.profiles?.username?.slice(0, 2).toUpperCase() || "??"
+                            return {
+                                id: m.member_id,
+                                name: m.profiles?.full_name || m.profiles?.username || "Unknown",
+                                avatar: initials,
+                                avatarUrl: m.profiles?.avatar || null,
+                            }
+                        }),
                         stats: {
                             updates: updates.length,
                             members: members.length,
@@ -184,7 +188,7 @@ export function ProjectsOverview() {
                                                 className="h-8 w-8 border-2 border-white"
                                                 title={member.name}
                                             >
-                                                <AvatarImage src={`/placeholder.svg?height=32&width=32&query=${member.name}`} />
+                                                <AvatarImage src={member.avatarUrl || undefined} />
                                                 <AvatarFallback className="bg-[#AEC6FF] text-xs font-medium">
                                                     {member.avatar}
                                                 </AvatarFallback>

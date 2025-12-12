@@ -31,17 +31,19 @@ export function DashboardContent() {
   }
 
   // Calculate profile completion
+  // Points: full_name (20), bio (20), track (15), cohort (15), skills (15), college (10), location (5), avatar (5)
+  // Total: 105 points (but we cap at 100%)
   const profileCompletion = profile
-    ? Math.round(
-        ((profile.full_name ? 20 : 0) +
-          (profile.bio ? 20 : 0) +
-          (profile.track ? 15 : 0) +
-          (profile.cohort ? 15 : 0) +
-          (profile.skills && profile.skills.length > 0 ? 15 : 0) +
-          (profile.college ? 10 : 0) +
-          (profile.location ? 5 : 0)) /
-          100
-      ) * 100
+    ? Math.min(100, Math.round(
+        (profile.full_name ? 20 : 0) +
+        (profile.bio ? 20 : 0) +
+        (profile.track ? 15 : 0) +
+        (profile.cohort ? 15 : 0) +
+        (profile.skills && profile.skills.length > 0 ? 15 : 0) +
+        (profile.college ? 10 : 0) +
+        (profile.location ? 5 : 0) +
+        (profile.avatar ? 5 : 0)
+      ))
     : 0
 
   // Get upcoming events (next 3)

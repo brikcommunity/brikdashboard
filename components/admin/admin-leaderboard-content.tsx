@@ -47,6 +47,7 @@ interface LeaderboardEntry {
   id: number
   name: string
   avatar: string
+  avatarUrl?: string | null
   track: string
   cohort: string
   xp: number
@@ -303,17 +304,21 @@ export function AdminLeaderboardContent() {
       const { data: profiles, error } = await getProfiles()
       if (error) throw error
 
-      const leaderboardData: LeaderboardEntry[] = (profiles || []).map((profile: Profile, index: number) => ({
-        id: parseInt(profile.id.slice(0, 8), 16) || index + 1, // Convert UUID to number for compatibility
-        name: profile.full_name || profile.username,
-        avatar: profile.avatar || (profile.full_name || profile.username).split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2),
-        track: profile.track || "General",
-        cohort: profile.cohort || "N/A",
-        xp: profile.xp || 0,
-        badges: profile.badges || 0,
-        rank: index + 1,
-        previousRank: index + 1, // We don't track previous rank, so use current
-      }))
+      const leaderboardData: LeaderboardEntry[] = (profiles || []).map((profile: Profile, index: number) => {
+        const initials = (profile.full_name || profile.username).split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+        return {
+          id: parseInt(profile.id.slice(0, 8), 16) || index + 1, // Convert UUID to number for compatibility
+          name: profile.full_name || profile.username,
+          avatar: initials,
+          avatarUrl: profile.avatar || null,
+          track: profile.track || "General",
+          cohort: profile.cohort || "N/A",
+          xp: profile.xp || 0,
+          badges: profile.badges || 0,
+          rank: index + 1,
+          previousRank: index + 1, // We don't track previous rank, so use current
+        }
+      })
 
       setLeaderboard(leaderboardData)
     } catch (error) {
@@ -558,7 +563,7 @@ export function AdminLeaderboardContent() {
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <Avatar className="h-8 w-8 border-2 border-border">
-                                <AvatarImage src={`/placeholder.svg?height=32&width=32&query=${entry.name} portrait`} />
+                                <AvatarImage src={entry.avatarUrl || undefined} />
                                 <AvatarFallback className="bg-[#AEC6FF] text-xs font-bold">
                                   {entry.avatar}
                                 </AvatarFallback>

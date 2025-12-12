@@ -197,7 +197,7 @@ export function TopNavbar({ onMenuClick }: TopNavbarProps) {
               className="flex h-10 items-center gap-2 border-2 bg-transparent px-2 shadow-[2px_2px_0px_0px_#1A1A1A] hover:shadow-[4px_4px_0px_0px_#1A1A1A] sm:px-3"
             >
               <Avatar className="h-7 w-7 border-2 border-border">
-                <AvatarImage src={profile?.avatar_url || "/placeholder.svg?height=28&width=28"} />
+                <AvatarImage src={profile?.avatar || undefined} />
                 <AvatarFallback className="bg-[#AEC6FF] text-xs font-bold">{avatarInitials}</AvatarFallback>
               </Avatar>
               <span className="hidden font-medium sm:inline-block">{displayName}</span>

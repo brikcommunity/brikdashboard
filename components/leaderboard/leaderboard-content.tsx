@@ -58,6 +58,7 @@ export function LeaderboardContent() {
         id: profile.id,
         name: profile.full_name || profile.username,
         avatar: initials,
+        avatarUrl: profile.avatar || null,
         xp: profile.xp || 0,
         badges: profile.badges || 0,
         track: profile.track || null,
@@ -130,7 +131,7 @@ export function LeaderboardContent() {
                 )}
               </div>
               <Avatar className="h-12 w-12 border-2 border-border sm:h-16 sm:w-16">
-                <AvatarImage src={`/placeholder.svg?height=64&width=64&query=${user.name} portrait`} />
+                <AvatarImage src={user.avatarUrl || undefined} />
                 <AvatarFallback className="bg-[#AEC6FF] text-sm font-bold sm:text-base">{user.avatar}</AvatarFallback>
               </Avatar>
               <h3 className="mt-2 font-mono text-sm font-bold sm:mt-3 sm:text-base">{user.name}</h3>
@@ -246,7 +247,7 @@ export function LeaderboardContent() {
                     <td className="px-3 py-2 sm:px-4 sm:py-3">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <Avatar className="h-7 w-7 border-2 border-border sm:h-8 sm:w-8">
-                          <AvatarImage src={`/placeholder.svg?height=32&width=32&query=${user.name} portrait`} />
+                          <AvatarImage src={user.avatarUrl || undefined} />
                           <AvatarFallback className="bg-[#AEC6FF] text-xs font-bold">{user.avatar}</AvatarFallback>
                         </Avatar>
                         <span className="text-sm font-medium">

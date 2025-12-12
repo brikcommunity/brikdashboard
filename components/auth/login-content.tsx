@@ -353,13 +353,9 @@ export function LoginContent() {
             </Button>
           </div>
 
-          {/* Sign Up Link */}
-          <p className="mt-8 text-center text-gray-600">
-            Don&apos;t have an account?{" "}
-            <a href="#" className="text-[#3a5fcd] hover:text-[#5c7aea] font-bold transition-colors relative group">
-              Sign up
-              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#3a5fcd] group-hover:w-full transition-all duration-300" />
-            </a>
+          {/* Note: Only admins can create new members */}
+          <p className="mt-8 text-center text-sm text-gray-500">
+            Need an account? Contact an administrator.
           </p>
         </div>
       </div>

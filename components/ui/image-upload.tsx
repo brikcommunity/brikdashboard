@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Upload, Loader2, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { supabase } from "@/lib/supabase"
 
 interface ImageUploadProps {
   currentImage?: string | null
@@ -59,14 +60,9 @@ export function ImageUpload({
     // Upload to server
     setUploading(true)
     try {
-      // Get the session token from Supabase
-      const { createClient } = await import('@supabase/supabase-js')
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      const supabase = createClient(supabaseUrl, supabaseAnonKey)
-      
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
+      // Get the session token from the existing Supabase client
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !session) {
         throw new Error('Not authenticated. Please log in.')
       }
 
