@@ -41,6 +41,7 @@ import {
   type Profile,
 } from "@/lib/database"
 import { createProjectByAdmin, updateProjectByAdmin, deleteProjectByAdmin } from "@/lib/admin"
+import { supabase } from "@/lib/supabase"
 import { formatDistanceToNow } from "date-fns"
 
 const tracks = ["Engineering", "Design", "Product", "Climate", "Health"]
@@ -57,6 +58,9 @@ export function AdminProjectsContent() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const [formData, setFormData] = useState({
     name: "",
@@ -162,10 +166,13 @@ export function AdminProjectsContent() {
 
   const handleEdit = async () => {
     if (!editingProject || !formData.name.trim()) {
+      setEditError("Project name is required")
       return
     }
 
     setIsSubmitting(true)
+    setEditError(null)
+
     try {
       const { data, error } = await updateProjectByAdmin(editingProject.id, {
         name: formData.name,
@@ -178,28 +185,78 @@ export function AdminProjectsContent() {
       })
 
       if (error) {
+        const errorMsg = typeof error === 'string' ? error : (error?.message || "Failed to update project")
+        setEditError(errorMsg)
         setIsSubmitting(false)
         return
       }
 
-      // Update members
-      const currentMembers = (await getProjectMembers(editingProject.id)).data || []
-      const currentMemberIds = currentMembers.map((m: any) => m.member_id)
-
-      // Remove members that are no longer selected
-      for (const memberId of currentMemberIds) {
-        if (!formData.members.includes(memberId)) {
-          await removeProjectMember(editingProject.id, memberId)
-        }
+      if (!data) {
+        setEditError("Failed to update project - no data returned")
+        setIsSubmitting(false)
+        return
       }
 
-      // Add new members
-      for (const memberId of formData.members) {
-        if (!currentMemberIds.includes(memberId)) {
-          await addProjectMember(editingProject.id, memberId, "member")
+      // Update members using API routes (bypasses RLS)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          throw new Error('Not authenticated')
         }
+
+        const currentMembersResult = await getProjectMembers(editingProject.id)
+        if (currentMembersResult.error) {
+          throw new Error(`Failed to fetch current members: ${currentMembersResult.error.message || 'Unknown error'}`)
+        }
+        
+        const currentMembers = currentMembersResult.data || []
+        const currentMemberIds = currentMembers.map((m: any) => m.member_id)
+
+        // Remove members that are no longer selected
+        for (const memberId of currentMemberIds) {
+          if (!formData.members.includes(memberId)) {
+            const response = await fetch('/api/admin/remove-project-member', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ projectId: editingProject.id, memberId }),
+            })
+
+            const result = await response.json()
+            if (!response.ok) {
+              throw new Error(result.error || `Failed to remove member`)
+            }
+          }
+        }
+
+        // Add new members
+        for (const memberId of formData.members) {
+          if (!currentMemberIds.includes(memberId)) {
+            const response = await fetch('/api/admin/add-project-member', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ projectId: editingProject.id, memberId, role: 'member' }),
+            })
+
+            const result = await response.json()
+            if (!response.ok) {
+              throw new Error(result.error || `Failed to add member`)
+            }
+          }
+        }
+      } catch (memberError: any) {
+        // Member update error - show error but project update still succeeded
+        const memberErrorMsg = memberError?.message || 'Failed to update project members'
+        setEditError(`Project updated, but ${memberErrorMsg.toLowerCase()}`)
+        // Don't return - let the success flow continue since project was updated
       }
 
+      // Success - refresh projects and close dialog
       await fetchProjects()
       setEditingProject(null)
       setFormData({
@@ -212,24 +269,52 @@ export function AdminProjectsContent() {
         featured: false,
         members: [],
       })
+      setEditError(null)
       setIsSubmitting(false)
     } catch (error: any) {
+      setEditError(error?.message || "An unexpected error occurred")
       setIsSubmitting(false)
     }
   }
 
   const handleDelete = async () => {
-    if (!deleteId) return
+    if (!deleteId) {
+      setDeleteError("No project selected for deletion")
+      return
+    }
+
+    setIsDeleting(true)
+    setDeleteError(null)
 
     try {
-      const { error } = await deleteProjectByAdmin(deleteId)
-      if (error) {
+      const result = await deleteProjectByAdmin(deleteId)
+      
+      if (result.error) {
+        const errorMsg = typeof result.error === 'string' 
+          ? result.error 
+          : (result.error?.message || "Failed to delete project")
+        setDeleteError(errorMsg)
+        setIsDeleting(false)
         return
       }
+
+      if (!result.data) {
+        setDeleteError("Failed to delete project - no confirmation received")
+        setIsDeleting(false)
+        return
+      }
+
+      // Success - refresh projects list
       await fetchProjects()
+      
+      // Close dialog and reset state
       setDeleteId(null)
+      setDeleteError(null)
+      setIsDeleting(false)
     } catch (error: any) {
-      // Error deleting project
+      const errorMsg = error?.message || error?.toString() || "An unexpected error occurred"
+      setDeleteError(errorMsg)
+      setIsDeleting(false)
     }
   }
 
@@ -578,7 +663,16 @@ export function AdminProjectsContent() {
 
       {/* Edit Dialog */}
       {editingProject && (
-        <Dialog open={!!editingProject} onOpenChange={() => setEditingProject(null)}>
+        <Dialog 
+          open={!!editingProject} 
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditingProject(null)
+              setEditError(null)
+              setIsSubmitting(false)
+            }
+          }}
+        >
           <DialogContent className="max-h-[90vh] overflow-y-auto border-2 shadow-[8px_8px_0px_0px_#1A1A1A] sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="font-mono">Edit Project</DialogTitle>
@@ -694,9 +788,23 @@ export function AdminProjectsContent() {
                   Featured Project
                 </Label>
               </div>
+              {editError && (
+                <div className="rounded-md bg-red-50 border-2 border-red-200 p-3">
+                  <p className="text-sm text-red-800">{editError}</p>
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setEditingProject(null)} className="border-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setEditingProject(null)
+                  setEditError(null)
+                  setIsSubmitting(false)
+                }} 
+                className="border-2"
+                disabled={isSubmitting}
+              >
                 Cancel
               </Button>
               <Button
@@ -783,7 +891,16 @@ export function AdminProjectsContent() {
 
       {/* Delete Confirmation */}
       {deleteId && (
-        <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <Dialog 
+          open={!!deleteId} 
+          onOpenChange={(open) => {
+            if (!open) {
+              setDeleteId(null)
+              setDeleteError(null)
+              setIsDeleting(false)
+            }
+          }}
+        >
           <DialogContent className="border-2 shadow-[8px_8px_0px_0px_#1A1A1A]">
             <DialogHeader>
               <DialogTitle className="font-mono">Delete Project</DialogTitle>
@@ -791,15 +908,37 @@ export function AdminProjectsContent() {
             <p className="text-sm text-muted-foreground">
               Are you sure you want to delete this project? This action cannot be undone.
             </p>
+            {deleteError && (
+              <div className="rounded-md bg-red-50 border-2 border-red-200 p-3">
+                <p className="text-sm text-red-800">{deleteError}</p>
+              </div>
+            )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteId(null)} className="border-2">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setDeleteId(null)
+                  setDeleteError(null)
+                  setIsDeleting(false)
+                }} 
+                className="border-2"
+                disabled={isDeleting}
+              >
                 Cancel
               </Button>
               <Button
                 onClick={handleDelete}
+                disabled={isDeleting}
                 className="border-2 border-border bg-red-600 text-white shadow-[4px_4px_0px_0px_#1A1A1A] hover:bg-red-700"
               >
-                Delete
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

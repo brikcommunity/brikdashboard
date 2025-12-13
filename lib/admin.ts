@@ -677,26 +677,35 @@ export async function updateProjectByAdmin(projectId: string, updates: {
   featured?: boolean
 }) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { data: null, error: adminError || 'Admin access required' }
-
-    if (updates.progress !== undefined && (updates.progress < 0 || updates.progress > 100)) {
-      return { data: null, error: 'Progress must be between 0 and 100' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
     }
 
-    const cleanUpdates: Record<string, any> = {}
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value !== undefined) cleanUpdates[key] = value
+    if (!projectId) return { data: null, error: 'Project ID is required' }
+
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session) {
+      return { data: null, error: sessionError?.message || 'Not authenticated' }
+    }
+
+    const response = await fetch('/api/admin/update-project', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ projectId, updates }),
     })
 
-    const { data, error } = await supabase
-      .from('projects')
-      .update(cleanUpdates)
-      .eq('id', projectId)
-      .select()
-      .single()
+    const result = await response.json()
 
-    return { data, error: error ? error.message : null }
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to update project via API' }
+    }
+
+    return { data: result.data, error: null }
   } catch (error: any) {
     return { data: null, error: error.message || 'Failed to update project' }
   }
@@ -704,17 +713,36 @@ export async function updateProjectByAdmin(projectId: string, updates: {
 
 export async function deleteProjectByAdmin(projectId: string) {
   try {
+    // Verify admin access
     const { isAdmin, error: adminError } = await verifyAdmin()
-    if (!isAdmin) return { error: adminError || 'Admin access required' }
+    if (!isAdmin) {
+      return { data: null, error: adminError || 'Admin access required' }
+    }
 
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', projectId)
+    // Call the API route to delete the project using the service role key
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session) {
+      return { data: null, error: sessionError?.message || 'Not authenticated' }
+    }
 
-    return { error: error ? error.message : null }
+    const response = await fetch('/api/admin/delete-project', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ projectId }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return { data: null, error: result.error || 'Failed to delete project via API' }
+    }
+
+    return { data: result.data, error: null }
   } catch (error: any) {
-    return { error: error.message || 'Failed to delete project' }
+    return { data: null, error: error.message || 'Failed to delete project' }
   }
 }
 
